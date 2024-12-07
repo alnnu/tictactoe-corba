@@ -6,7 +6,7 @@
 import sys
 import threading
 from tkinter import *
-import CORBA
+from omniORB import CORBA
 import PortableServer
 import TicTacToe
 import TicTacToe__POA
@@ -206,13 +206,321 @@ class GameBrowser:
         self.getGameList()
 
     def joinGame(self):
-        # Resto do método joinGame aqui...
+        selection = self.listbox.curselection()
+        if selection == (): return
+
+        index = int(selection[0])
+        info = self.gameList[index]
+
+        pi = Player_i(self.master, info.name)
+        id = poa.activate_object(pi)
+        po = poa.id_to_reference(id)
+        try:
+            controller, type = info.obj.joinGame(po)
+            if type == TicTacToe.Nought:
+                stype = "noughts"
+            else:
+                stype = "crosses"
+
+            pi.go(info.obj, controller, stype)
+
+            self.statusMessage("%s: joined game as %s" % (info.name, stype))
+
+        except TicTacToe.Game.CannotJoin as ex:
+            poa.deactivate_object(id)
+            self.statusMessage("%s: cannot join game" % info.name)
+
+        except CORBA.SystemException as ex:
+            poa.deactivate_object(id)
+            print("System exception trying to join game:")
+            print("  ", CORBA.id(ex), ex)
+            self.statusMessage("%s: system exception contacting game" % \
+                               info.name)
+            self.getGameList()
 
     def watchGame(self):
-        # Método para assistir o jogo...
+        selection = self.listbox.curselection()
+        if selection == (): return
 
-    def killGame(self):
-        # Método para encerrar o jogo...
+        index = int(selection[0])
+        info = self.gameList[index]
+
+        si = Spectator_i(self.master, info.name)
+        id = poa.activate_object(si)
+        so = poa.id_to_reference(id)
+        try:
+            cookie, state = info.obj.watchGame(so)
+            si.go(info.obj, cookie, state)
+
+            self.statusMessage("Watching %s" % info.name)
+
+        except CORBA.SystemException as ex:
+            poa.deactivate_object(id)
+            print("System exception trying to watch game:")
+            print("  ", CORBA.id(ex), ex)
+            self.statusMessage("%s: system exception contacting game" % \
+                               info.name)
+            self.getGameList()
 
     def update(self):
         self.getGameList()
+
+    def killGame(self):
+        selection = self.listbox.curselection()
+        if selection == (): return
+
+        index = int(selection[0])
+        info = self.gameList[index]
+
+        try:
+            info.obj.kill()
+            msg = "killed"
+
+        except CORBA.SystemException as ex:
+            print("System exception trying to kill game:")
+            print("  ", CORBA.id(ex), ex)
+            msg = "error contacting object"
+
+        self.statusMessage("%s: %s" % (info.name, msg))
+        self.getGameList()
+
+class Player_i(TicTacToe__POA.Player):
+
+    def __init__(self, master, name):
+        self.master = master
+        self.name = name
+        print("Player_i created")
+
+    def __del__(self):
+        print("Player_i deleted")
+
+    # CORBA methods
+    def yourGo(self, state):
+        self.drawState(state)
+        self.statusMessage("Your go")
+
+    def end(self, state, winner):
+        self.drawState(state)
+        if winner == TicTacToe.Nought:
+            self.statusMessage("Noughts wins")
+        elif winner == TicTacToe.Cross:
+            self.statusMessage("Crosses wins")
+        else:
+            self.statusMessage("It's a draw")
+        self.toplevel = None
+
+    def gameAborted(self):
+        self.statusMessage("Game aborted!")
+        self.toplevel = None
+
+    # Implementation details
+    def go(self, game, controller, type):
+        self.game = game
+        self.controller = controller
+        self.type = type
+
+        self.toplevel = Toplevel(self.master)
+        self.toplevel.title("%s (%s)" % (self.name, type))
+
+        self.canvas = Canvas(self.toplevel, width=300, height=300)
+        self.canvas.pack()
+
+        self.canvas.create_line(100, 0, 100, 300, width=5)
+        self.canvas.create_line(200, 0, 200, 300, width=5)
+        self.canvas.create_line(0, 100, 300, 100, width=5)
+        self.canvas.create_line(0, 200, 300, 200, width=5)
+
+        self.canvas.bind("<ButtonRelease-1>", self.click)
+        self.toplevel.bind("<Destroy>", self.close)
+
+        self.statusbar = Label(self.toplevel,
+                               text="", bd=1, relief=SUNKEN, anchor=W)
+        self.statusbar.pack(side=BOTTOM, fill=X)
+
+    def statusMessage(self, msg):
+        if self.toplevel:
+            self.statusbar.config(text=msg)
+
+    def click(self, evt):
+        x = evt.x / 100
+        y = evt.y / 100
+        try:
+            self.statusMessage("Waiting for other player...")
+            state = self.controller.play(x, y)
+            self.drawState(state)
+
+        except TicTacToe.GameController.SquareOccupied:
+            self.statusMessage("Square already occupied")
+
+        except TicTacToe.GameController.NotYourGo:
+            self.statusMessage("Not your go")
+
+        except TicTacToe.GameController.InvalidCoordinates:
+            self.statusMessage("Eek!  Invalid coordinates")
+
+        except CORBA.SystemException:
+            print("System exception trying to contact GameController:")
+            print("  ", CORBA.id(ex), ex)
+            self.statusMessage("System exception contacting GameController!")
+
+    def close(self, evt):
+        if self.toplevel:
+            self.toplevel = None
+            try:
+                self.game.kill()
+            except CORBA.SystemException as ex:
+                print("System exception trying to kill game:")
+                print("  ", CORBA.id(ex), ex)
+
+            id = poa.servant_to_id(self)
+            poa.deactivate_object(id)
+
+    def drawNought(self, x, y):
+        cx = x * 100 + 20
+        cy = y * 100 + 20
+        self.canvas.create_oval(cx, cy, cx + 60, cy + 60,
+                                outline="darkgreen", width=5)
+
+    def drawCross(self, x, y):
+        cx = x * 100 + 30
+        cy = y * 100 + 30
+        self.canvas.create_line(cx, cy, cx + 40, cy + 40,
+                                fill="darkred", width=5)
+        self.canvas.create_line(cx, cy + 40, cx + 40, cy,
+                                fill="darkred", width=5)
+
+    def drawState(self, state):
+        for i in range(3):
+            for j in range(3):
+                if state[i][j] == TicTacToe.Nought:
+                    self.drawNought(i, j)
+                elif state[i][j] == TicTacToe.Cross:
+                    self.drawCross(i, j)
+
+class Spectator_i(TicTacToe__POA.Spectator):
+
+    def __init__(self, master, name):
+        self.master = master
+        self.name = name
+        print("Spectator_i created")
+
+    def __del__(self):
+        print("Spectator_i deleted")
+
+    # CORBA methods
+    def update(self, state):
+        self.drawState(state)
+
+    def end(self, state, winner):
+        self.drawState(state)
+        if winner == TicTacToe.Nought:
+            self.statusMessage("Noughts wins")
+        elif winner == TicTacToe.Cross:
+            self.statusMessage("Crosses wins")
+        else:
+            self.statusMessage("It's a draw")
+        self.toplevel = None
+
+    def gameAborted(self):
+        self.statusMessage("Game aborted!")
+        self.toplevel = None
+
+    # Implementation details
+    def go(self, game, cookie, state):
+        self.game = game
+        self.cookie = cookie
+
+        self.toplevel = Toplevel(self.master)
+        self.toplevel.title("Watching %s" % self.name)
+
+        self.canvas = Canvas(self.toplevel, width=300, height=300)
+        self.canvas.pack()
+
+        self.canvas.create_line(100, 0, 100, 300, width=5)
+        self.canvas.create_line(200, 0, 200, 300, width=5)
+        self.canvas.create_line(0, 100, 300, 100, width=5)
+        self.canvas.create_line(0, 200, 300, 200, width=5)
+
+        self.toplevel.bind("<Destroy>", self.close)
+
+        self.statusbar = Label(self.toplevel,
+                               text="", bd=1, relief=SUNKEN, anchor=W)
+        self.statusbar.pack(side=BOTTOM, fill=X)
+        self.drawState(state)
+
+    def statusMessage(self, msg):
+        self.statusbar.config(text=msg)
+
+    def close(self, evt):
+        if self.toplevel:
+            self.toplevel = None
+            try:
+                self.game.unwatchGame(self.cookie)
+            except CORBA.SystemException as ex:
+                print("System exception trying to unwatch game:")
+                print("  ", CORBA.id(ex), ex)
+
+            id = poa.servant_to_id(self)
+            poa.deactivate_object(id)
+
+    def drawNought(self, x, y):
+        cx = x * 100 + 20
+        cy = y * 100 + 20
+        self.canvas.create_oval(cx, cy, cx + 60, cy + 60,
+                                outline="darkgreen", width=5)
+
+    def drawCross(self, x, y):
+        cx = x * 100 + 30
+        cy = y * 100 + 30
+        self.canvas.create_line(cx, cy, cx + 40, cy + 40,
+                                fill="darkred", width=5)
+        self.canvas.create_line(cx, cy + 40, cx + 40, cy,
+                                fill="darkred", width=5)
+
+    def drawState(self, state):
+        for i in range(3):
+            for j in range(3):
+                if state[i][j] == TicTacToe.Nought:
+                    self.drawNought(i, j)
+                elif state[i][j] == TicTacToe.Cross:
+                    self.drawCross(i, j)
+
+orb = CORBA.ORB_init(sys.argv, CORBA.ORB_ID)
+poa = orb.resolve_initial_references("RootPOA")
+poa._get_the_POAManager().activate()
+
+# Get the GameFactory reference using a corbaname URI. On a pre-CORBA
+# 2.4 ORB, this would have to explicitly contact the naming service.
+try:
+    gameFactory = orb.string_to_object("corbaname:rir:#tutorial/GameFactory")
+    gameFactory = gameFactory._narrow(TicTacToe.GameFactory)
+
+except CORBA.BAD_PARAM as ex:
+    # string_to_object throws BAD_PARAM if the name cannot be resolved
+    print("Cannot find the GameFactory in the naming service.")
+    sys.exit(1)
+
+except CORBA.SystemException as ex:
+    # This might happen if the naming service is dead, or the narrow
+    # tries to contact the object and it is not there.
+
+    print("CORBA system exception trying to get the GameFactory reference:")
+    print("  ", CORBA.id(ex), ex)
+    sys.exit(1)
+
+# Start the game browser
+browser = GameBrowser(orb, poa, gameFactory)
+
+# Run the Tk mainloop in a separate thread
+
+def tkloop(self):
+    browser.master.mainloop()
+    print("Shutting down the ORB...")
+    orb.shutdown(0)
+
+threading.Thread(target=tkloop).start()
+
+# Run the ORB main loop (not necessary with omniORBpy, but may be
+# necessary with other ORBs. According to the CORBA specification,
+# orb.run() must be given the main thread.
+orb.run()
