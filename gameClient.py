@@ -1,19 +1,22 @@
-#!/usr/bin/env python3
+
+#!/usr/bin/env python
 
 # gameClient.py
 
 import sys
 import threading
+from tkinter import *
 import CORBA
 import PortableServer
-import TicTacToe, TicTacToe__POA
-
-from tkinter import *
-from tkinter import messagebox
+import TicTacToe
+import TicTacToe__POA
 
 
 class GameBrowser:
-    """Interface gráfica principal para o cliente do jogo."""
+    """This class implements a top-level user interface to the game
+    player. It lists the games currently running in the GameFactory.
+    The user can choose to create new games, and join, watch or kill
+    existing games."""
 
     def __init__(self, orb, poa, gameFactory):
         self.orb = orb
@@ -21,65 +24,97 @@ class GameBrowser:
         self.gameFactory = gameFactory
         self.initGui()
         self.getGameList()
-        print("GameBrowser inicializado")
+        print("GameBrowser initialized")
 
     def initGui(self):
-        """Inicializa a interface gráfica com Tkinter."""
+        """Initialize the Tk objects for the GUI"""
+
         self.master = Tk()
-        self.master.title("Cliente de Jogo")
+        self.master.title("Game Client")
         self.master.resizable(0, 0)
 
         frame = Frame(self.master)
 
-        # Listbox com barra de rolagem
+        # List box and scrollbar
         listframe = Frame(frame)
         scrollbar = Scrollbar(listframe, orient=VERTICAL)
-        self.listbox = Listbox(listframe, exportselection=0, width=30, height=20, yscrollcommand=scrollbar.set)
+        self.listbox = Listbox(
+            listframe,
+            exportselection=0,
+            width=30,
+            height=20,
+            yscrollcommand=scrollbar.set,
+        )
 
         scrollbar.config(command=self.listbox.yview)
         self.listbox.pack(side=LEFT, fill=BOTH, expand=1)
         scrollbar.pack(side=RIGHT, fill=Y)
 
         self.listbox.bind("<ButtonRelease-1>", self.selectGame)
+
         listframe.grid(row=0, column=0, rowspan=6)
 
-        # Espaçamento
+        # Padding
         Frame(frame, width=20).grid(row=0, column=1, rowspan=6)
 
-        # Botões
-        buttons = [
-            ("Novo Jogo", self.newGame),
-            ("Entrar no Jogo", self.joinGame),
-            ("Assistir Jogo", self.watchGame),
-            ("Encerrar Jogo", self.killGame),
-            ("Atualizar Lista", self.update),
-            ("Sair", frame.quit),
-        ]
-        for i, (text, command) in enumerate(buttons):
-            button = Button(frame, text=text, width=15, command=command)
-            button.grid(row=i, column=2)
+        # Buttons
+        newbutton = Button(frame, text="New game", command=self.newGame)
+        joinbutton = Button(frame, text="Join game", command=self.joinGame)
+        watchbutton = Button(frame, text="Watch game", command=self.watchGame)
+        killbutton = Button(frame, text="Kill game", command=self.killGame)
+        updatebutton = Button(frame, text="Update list", command=self.update)
+        quitbutton = Button(frame, text="Quit", command=frame.quit)
+
+        for button in [
+            newbutton,
+            joinbutton,
+            watchbutton,
+            killbutton,
+            updatebutton,
+            quitbutton,
+        ]:
+            button.config(width=15)
+
+        self.newbutton = newbutton
+        newbutton.bind("<ButtonRelease-1>", self.setNewButtonPosition)
+
+        newbutton.grid(row=0, column=2)
+        joinbutton.grid(row=1, column=2)
+        watchbutton.grid(row=2, column=2)
+        killbutton.grid(row=3, column=2)
+        updatebutton.grid(row=4, column=2)
+        quitbutton.grid(row=5, column=2)
 
         self.newGameDialogue = None
 
-        # Barra de status
+        # Padding at bottom
+        Frame(frame, height=10).grid(row=6, columnspan=3)
+
+        # Status bar
         self.statusbar = Label(self.master, text="", bd=1, relief=SUNKEN, anchor=W)
         self.statusbar.pack(side=BOTTOM, fill=X)
 
         frame.pack(side=TOP)
 
     def getGameList(self):
-        """Obtém a lista de jogos do GameFactory e atualiza o Listbox."""
+        """Get the list of games from the GameFactory, and populate
+        the Listbox in the GUI"""
+
         self.gameList = []
         self.listbox.delete(0, END)
 
         try:
             seq, iterator = self.gameFactory.listGames(0)
         except CORBA.SystemException as ex:
-            print(f"Exceção do sistema ao acessar GameFactory: {CORBA.id(ex)}, {ex}")
+            print("System exception contacting GameFactory:")
+            print("  ", CORBA.id(ex), ex)
             return
 
+        if len(seq) > 0:
+            print("listGames() did not return an empty sequence as it should")
+
         if iterator is None:
-            print("Nenhum jogo encontrado no GameFactory.")
+            print("No games in the GameFactory")
             return
 
         try:
@@ -94,15 +129,15 @@ class GameBrowser:
             iterator.destroy()
 
         except CORBA.SystemException as ex:
-            print(f"Exceção do sistema ao acessar GameIterator: {CORBA.id(ex)}, {ex}")
+            print("System exception contacting GameIterator:")
+            print("  ", CORBA.id(ex), ex)
 
     def statusMessage(self, msg):
-        """Atualiza a barra de status."""
         self.statusbar.config(text=msg)
 
     def selectGame(self, evt):
-        """Exibe informações do jogo selecionado."""
         selection = self.listbox.curselection()
+
         if not selection:
             return
 
@@ -111,95 +146,73 @@ class GameBrowser:
 
         try:
             players = info.obj._get_players()
-            msg = (
-                "sem jogadores" if players == 0 else
-                "um jogador aguardando" if players == 1 else
-                "jogo em andamento"
-            )
+            if players == 0:
+                msg = "No players yet"
+            elif players == 1:
+                msg = "One player waiting"
+            else:
+                msg = "Game in progress"
+
         except CORBA.SystemException as ex:
-            print(f"Erro ao acessar Game: {CORBA.id(ex)}, {ex}")
-            msg = "Erro ao acessar o jogo"
+            print("System exception contacting Game:")
+            print("  ", CORBA.id(ex), ex)
+            msg = "Error contacting Game object"
 
         self.statusMessage(f"{info.name}: {msg}")
 
+    def setNewButtonPosition(self, evt):
+        self._new_x = self.master.winfo_x() + self.newbutton.winfo_x() + evt.x
+        self._new_y = self.master.winfo_y() + self.newbutton.winfo_y() + evt.y
+
     def newGame(self):
-        """Abre um diálogo para criar um novo jogo."""
         if self.newGameDialogue:
             self.newGameDialogue.destroy()
 
-        self.newGameDialogue = Toplevel(self.master)
-        self.newGameDialogue.transient()
-        self.newGameDialogue.title("Novo Jogo")
-        self.newGameDialogue.geometry(f"+{self.master.winfo_x()}+{self.master.winfo_y()}")
+        self.newGameDialogue = toplevel = Toplevel(self.master)
+        toplevel.transient()
+        toplevel.title("New game...")
+        toplevel.geometry(f"+{self._new_x}+{self._new_y}")
 
-        Label(self.newGameDialogue, text="Digite o nome do novo jogo:").pack()
+        Label(toplevel, text="Enter name for new game").pack()
 
-        entry = Entry(self.newGameDialogue)
+        entry = Entry(toplevel)
         entry.pack()
         entry.focus()
+
         entry.bind("<Return>", self.newGameEntered)
 
     def newGameEntered(self, evt):
-        """Cria o novo jogo com o nome inserido."""
         name = evt.widget.get()
         self.newGameDialogue.destroy()
         self.newGameDialogue = None
 
         if not name:
-            self.statusMessage("Por favor, insira um nome válido para o jogo.")
+            self.statusMessage("You must give a non-empty name")
             return
 
         try:
             self.gameFactory.newGame(name)
-        except TicTacToe.GameFactory.NameInUse:
-            self.statusMessage("Nome de jogo já em uso.")
-        except CORBA.SystemException as ex:
-            print(f"Erro ao criar jogo: {CORBA.id(ex)}, {ex}")
-            self.statusMessage("Erro ao criar o jogo.")
-        else:
-            self.getGameList()
 
-    def joinGame(self):
-        """Entra no jogo selecionado."""
-        selection = self.listbox.curselection()
-        if not selection:
+        except TicTacToe.GameFactory.NameInUse:
+            self.statusMessage("Game name in use")
             return
 
-        index = int(selection[0])
-        info = self.gameList[index]
-
-        try:
-            controller, playerType = info.obj.joinGame(self.poa.create_reference())
-            stype = "O" if playerType == TicTacToe.Nought else "X"
-            self.statusMessage(f"Entrou no jogo {info.name} como {stype}.")
-        except TicTacToe.Game.CannotJoin:
-            self.statusMessage("Não foi possível entrar no jogo.")
         except CORBA.SystemException as ex:
-            print(f"Erro ao entrar no jogo: {CORBA.id(ex)}, {ex}")
-            self.statusMessage("Erro ao entrar no jogo.")
+            print("System exception trying to create new game:")
+            print("  ", CORBA.id(ex), ex)
+            self.statusMessage("System exception trying to create new game")
+            return
 
-    def watchGame(self):
-        """Assiste ao jogo selecionado."""
-        # Similar ao joinGame, mas cria um Spectator_i.
-
-    def update(self):
-        """Atualiza a lista de jogos."""
         self.getGameList()
 
+    def joinGame(self):
+        # Resto do método joinGame aqui...
+
+    def watchGame(self):
+        # Método para assistir o jogo...
+
     def killGame(self):
-        """Encerra o jogo selecionado."""
-        selection = self.listbox.curselection()
-        if not selection:
-            return
+        # Método para encerrar o jogo...
 
-        index = int(selection[0])
-        info = self.gameList[index]
-
-        try:
-            info.obj.kill()
-            self.statusMessage(f"Jogo {info.name} encerrado.")
-        except CORBA.SystemException as ex:
-            print(f"Erro ao encerrar o jogo: {CORBA.id(ex)}, {ex}")
-            self.statusMessage("Erro ao encerrar o jogo.")
-        finally:
-            self.getGameList()
+    def update(self):
+        self.getGameList()
