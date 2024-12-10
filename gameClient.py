@@ -358,7 +358,7 @@ class Player_i(TicTacToe__POA.Player):
         except TicTacToe.GameController.InvalidCoordinates:
             self.statusMessage("Eek!  Invalid coordinates")
 
-        except CORBA.SystemException:
+        except CORBA.SystemException as ex:
             print("System exception trying to contact GameController:")
             print("  ", CORBA.id(ex), ex)
             self.statusMessage("System exception contacting GameController!")
@@ -492,7 +492,7 @@ poa._get_the_POAManager().activate()
 # Get the GameFactory reference using a corbaname URI. On a pre-CORBA
 # 2.4 ORB, this would have to explicitly contact the naming service.
 try:
-    gameFactory = orb.string_to_object("corbaname:rir:#tutorial/GameFactory")
+    gameFactory = orb.string_to_object("IOR:010000001e00000049444c3a546963546163546f652f47616d65466163746f72793a312e30000000010000000000000064000000010102000e0000003139322e3136382e312e313035007fe00e000000fe304957670000b681000000000000000200000000000000080000000100000000545441010000001c00000001000000010001000100000001000105090101000100000009010100")
     gameFactory = gameFactory._narrow(TicTacToe.GameFactory)
 
 except CORBA.BAD_PARAM as ex:
@@ -512,15 +512,38 @@ except CORBA.SystemException as ex:
 browser = GameBrowser(orb, poa, gameFactory)
 
 # Run the Tk mainloop in a separate thread
+# print("asd")
+# def tkloop(self):
+#     browser.master.mainloop()
+#     print("Shutting down the ORB...")
+#     orb.shutdown(0)
+#
+# tkloop(
+print('sad')
 
-def tkloop(self):
-    browser.master.mainloop()
-    print("Shutting down the ORB...")
-    orb.shutdown(0)
+def orb_loop():
+    """Executa o loop principal do ORB em uma thread separada."""
+    try:
+        orb.run()
+    except KeyboardInterrupt:
+        print("Shutting down ORB...")
+        orb.shutdown(1)
 
-threading.Thread(target=tkloop).start()
+# Inicialize a thread do ORB
+# orb_thread = threading.Thread(target=orb_loop, daemon=True)
+# orb_thread.start()
+
+
+
+# Execute o loop principal do Tkinter na thread principal
+browser.master.mainloop()
+
+# Após o loop do Tkinter terminar, desligue o ORB
+print("Shutting down the ORB...")
+orb.shutdown(0)
 
 # Run the ORB main loop (not necessary with omniORBpy, but may be
 # necessary with other ORBs. According to the CORBA specification,
 # orb.run() must be given the main thread.
-orb.run()
+
+
