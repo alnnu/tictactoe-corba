@@ -166,8 +166,175 @@ class Game_i(TicTacToe__POA.Game):
 
         return gobj, ptype
 
-    # Métodos restantes, como `kill`, `_play`, `_checkForWinner`,
-    # foram adaptados similarmente, atualizando exceções e prints.
+    def watchGame(self, spectator):
+        self.lock.acquire()
+        cookie = len(self.spectators)
+        self.spectators.append(spectator)
+        self.lock.release()
+        return cookie, self.state
+
+    def unwatchGame(self, cookie):
+        cookie = int(cookie)
+        self.lock.acquire()
+        if len(self.spectators) > cookie:
+            self.spectators[cookie] = None
+        self.lock.release()
+
+    def kill(self):
+        self.factory._removeGame(self.name)
+
+        if self.p_noughts:
+            try:
+                self.p_noughts.gameAborted()
+            except CORBA.SystemException as ex:
+                print("System exception contacting noughts player")
+
+        if self.p_crosses:
+            try:
+                self.p_crosses.gameAborted()
+            except CORBA.SystemException as ex:
+                print("System exception contacting crosses player")
+
+        self.spectatorNotifier.gameAborted()
+
+        self.poa.destroy(1, 0)
+
+        print("Game killed")
+
+    def _play(self, x, y, ptype):
+        """Real implementation of GameController::play()"""
+
+        if self.whose_go != ptype:
+            raise TicTacToe.GameController.NotYourGo()
+
+        if x < 0 or x > 2 or y < 0 or y > 2:
+            raise TicTacToe.GameController.InvalidCoordinates()
+
+        if self.state[x][y] != TicTacToe.Nobody:
+            raise TicTacToe.GameController.SquareOccupied()
+
+        self.state[x][y] = ptype
+
+        w = self._checkForWinner()
+
+        try:
+            if w is not None:
+                print("Winner:", w)
+                self.p_noughts.end(self.state, w)
+                self.p_crosses.end(self.state, w)
+                self.spectatorNotifier.end(self.state, w)
+
+                # Kill ourselves
+                self.factory._removeGame(self.name)
+                self.poa.destroy(1, 0)
+            else:
+                # Tell opponent it's their go
+                if ptype == TicTacToe.Nought:
+                    self.whose_go = TicTacToe.Cross
+                    self.p_crosses.yourGo(self.state)
+                else:
+                    self.whose_go = TicTacToe.Nought
+                    self.p_noughts.yourGo(self.state)
+
+                self.spectatorNotifier.update(self.state)
+
+        except (CORBA.COMM_FAILURE, CORBA.OBJECT_NOT_EXIST) as ex:
+            print("Lost contact with player!")
+            self.kill()
+
+        return self.state
+
+    def _checkForWinner(self):
+        """If there is a winner, return the winning player's type. If
+        the game is a tie, return Nobody, otherwise return None."""
+
+        # Rows
+        for i in range(3):
+            if self.state[i][0] == self.state[i][1] and \
+                    self.state[i][1] == self.state[i][2] and \
+                    self.state[i][0] != TicTacToe.Nobody:
+                return self.state[i][0]
+
+        # Columns
+        for i in range(3):
+            if self.state[0][i] == self.state[1][i] and \
+                    self.state[1][i] == self.state[2][i] and \
+                    self.state[0][i] != TicTacToe.Nobody:
+                return self.state[0][i]
+
+        # Top-left to bottom-right
+        if self.state[0][0] == self.state[1][1] and \
+                self.state[1][1] == self.state[2][2] and \
+                self.state[0][0] != TicTacToe.Nobody:
+            return self.state[0][0]
+
+        # Bottom-left to top-right
+        if self.state[0][2] == self.state[1][1] and \
+                self.state[1][1] == self.state[2][0] and \
+                self.state[0][2] != TicTacToe.Nobody:
+            return self.state[0][2]
+
+        # Return None if the game is not full
+        for i in range(3):
+            for j in range(3):
+                if self.state[i][j] == TicTacToe.Nobody:
+                    return None
+
+        # It's a draw
+        return TicTacToe.Nobody
+
+class SpectatorNotifier(threading.Thread):
+
+    # This thread is used to notify all the spectators about changes
+    # in the game state. Since there is only one thread, one errant
+    # spectator can hold up all the others. A proper event or
+    # notification service should make more effort to contact clients
+    # concurrently. No matter what happens, the players can't be held
+    # up.
+    #
+    # The implementation uses a simple work queue, which could
+    # potentially get backed-up. Ideally, items on the queue should be
+    # thrown out if they have been waiting too long.
+
+    def __init__(self, spectators, lock):
+        threading.Thread.__init__(self)
+        self.setDaemon(1)
+        self.spectators = spectators
+        self.lock = lock
+        self.queue = Queue.Queue(0)
+        self.start()
+
+    def run(self):
+        print("SpectatorNotifier running...")
+
+        # while 1:
+        #     method, args = self.queue.get()
+        #
+        #     print("Notifying:", method)
+        #
+        #     try:
+        #         self.lock.acquire()
+        #         for i in range(len(self.spectators)):
+        #             spec = self.spectators[i]
+        #             if spec:
+        #                 try:
+        #                     apply(getattr(spec, method), args)
+        #                 except (CORBA.COMM_FAILURE,
+        #                         CORBA.OBJECT_NOT_EXIST) as ex:
+        #                     print("Spectator lost")
+        #                     self.spectators[i] = None
+        #     finally:
+        #         self.lock.release()
+
+    def update(self, state):
+        s = (state[0][:], state[1][:], state[2][:])
+        self.queue.put(("update", (s,)))
+
+    def end(self, state, winner):
+        self.queue.put(("end", (state, winner)))
+
+    def gameAborted(self):
+        self.queue.put(("gameAborted", ()))
 
 
 class GameController_i(TicTacToe__POA.GameController):

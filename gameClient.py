@@ -344,6 +344,9 @@ class Player_i(TicTacToe__POA.Player):
     def click(self, evt):
         x = evt.x / 100
         y = evt.y / 100
+
+        print (x)
+        print (evt.x)
         try:
             self.statusMessage("Waiting for other player...")
             state = self.controller.play(x, y)
@@ -492,7 +495,7 @@ poa._get_the_POAManager().activate()
 # Get the GameFactory reference using a corbaname URI. On a pre-CORBA
 # 2.4 ORB, this would have to explicitly contact the naming service.
 try:
-    gameFactory = orb.string_to_object("IOR:010000001e00000049444c3a546963546163546f652f47616d65466163746f72793a312e30000000010000000000000064000000010102000e0000003139322e3136382e312e313035007fe00e000000fe304957670000b681000000000000000200000000000000080000000100000000545441010000001c00000001000000010001000100000001000105090101000100000009010100")
+    gameFactory = orb.string_to_object("IOR:010000001e00000049444c3a546963546163546f652f47616d65466163746f72793a312e30000000010000000000000064000000010102000e0000003139322e3136382e312e313035008d9c0e000000fe68a3576700005185000000000000000200000000000000080000000100000000545441010000001c00000001000000010001000100000001000105090101000100000009010100")
     gameFactory = gameFactory._narrow(TicTacToe.GameFactory)
 
 except CORBA.BAD_PARAM as ex:
@@ -519,7 +522,7 @@ browser = GameBrowser(orb, poa, gameFactory)
 #     orb.shutdown(0)
 #
 # tkloop(
-print('sad')
+
 
 def orb_loop():
     """Executa o loop principal do ORB em uma thread separada."""
@@ -530,8 +533,8 @@ def orb_loop():
         orb.shutdown(1)
 
 # Inicialize a thread do ORB
-# orb_thread = threading.Thread(target=orb_loop, daemon=True)
-# orb_thread.start()
+orb_thread = threading.Thread(target=orb_loop, daemon=True)
+orb_thread.start()
 
 
 
@@ -545,5 +548,4 @@ orb.shutdown(0)
 # Run the ORB main loop (not necessary with omniORBpy, but may be
 # necessary with other ORBs. According to the CORBA specification,
 # orb.run() must be given the main thread.
-
 
