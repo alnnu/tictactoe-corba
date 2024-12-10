@@ -202,8 +202,9 @@ class Game_i(TicTacToe__POA.Game):
         print("Game killed")
 
     def _play(self, x, y, ptype):
+        x = int(x)
+        y = int(y)
         """Real implementation of GameController::play()"""
-
         if self.whose_go != ptype:
             raise TicTacToe.GameController.NotYourGo()
 
@@ -228,6 +229,7 @@ class Game_i(TicTacToe__POA.Game):
                 self.factory._removeGame(self.name)
                 self.poa.destroy(1, 0)
             else:
+
                 # Tell opponent it's their go
                 if ptype == TicTacToe.Nought:
                     self.whose_go = TicTacToe.Cross
@@ -236,7 +238,7 @@ class Game_i(TicTacToe__POA.Game):
                     self.whose_go = TicTacToe.Nought
                     self.p_noughts.yourGo(self.state)
 
-                self.spectatorNotifier.update(self.state)
+                self.spectatorNotifier.up(self.state)
 
         except (CORBA.COMM_FAILURE, CORBA.OBJECT_NOT_EXIST) as ex:
             print("Lost contact with player!")
@@ -304,29 +306,32 @@ class SpectatorNotifier(threading.Thread):
         self.queue = Queue.Queue(0)
         self.start()
 
+    def apply(func, args, kwargs=None):
+        return func(*args) if kwargs is None else func(*args, **kwargs)
+
     def run(self):
         print("SpectatorNotifier running...")
 
-        # while 1:
-        #     method, args = self.queue.get()
-        #
-        #     print("Notifying:", method)
-        #
-        #     try:
-        #         self.lock.acquire()
-        #         for i in range(len(self.spectators)):
-        #             spec = self.spectators[i]
-        #             if spec:
-        #                 try:
-        #                     apply(getattr(spec, method), args)
-        #                 except (CORBA.COMM_FAILURE,
-        #                         CORBA.OBJECT_NOT_EXIST) as ex:
-        #                     print("Spectator lost")
-        #                     self.spectators[i] = None
-        #     finally:
-        #         self.lock.release()
+        while 1:
+            method, args = self.queue.get()
 
-    def update(self, state):
+            print("Notifying:", method)
+
+            try:
+                self.lock.acquire()
+                for i in range(len(self.spectators)):
+                    spec = self.spectators[i]
+                    if spec:
+                        try:
+                            self.apply(getattr(spec, method), args)
+                        except (CORBA.COMM_FAILURE,
+                                CORBA.OBJECT_NOT_EXIST) as ex:
+                            print("Spectator lost")
+                            self.spectators[i] = None
+            finally:
+                self.lock.release()
+
+    def up(self, state):
         s = (state[0][:], state[1][:], state[2][:])
         self.queue.put(("update", (s,)))
 
@@ -344,6 +349,7 @@ class GameController_i(TicTacToe__POA.GameController):
         print("GameController_i created.")
 
     def play(self, x, y):
+        print("s")
         return self.game._play(x, y, self.ptype)
 
 
@@ -387,7 +393,7 @@ def main(argv):
     print(orb.object_to_string(gf_obj))
 
     try:
-        nameRoot = orb.string_to_object("IOR:010000002b00000049444c3a6f6d672e6f72672f436f734e616d696e672f4e616d696e67436f6e746578744578743a312e300000010000000000000070000000010102000e0000003139322e3136382e312e31303500f90a0b0000004e616d6553657276696365000300000000000000080000000100000000545441010000001c0000000100000001000100010000000100010509010100010000000901010003545441080000009c9b546701006a14")
+        nameRoot = orb.string_to_object("IOR:010000002b00000049444c3a6f6d672e6f72672f436f734e616d696e672f4e616d696e67436f6e746578744578743a312e300000010000000000000074000000010102000f0000003139322e3136382e3132372e36390000f90a00000b0000004e616d6553657276696365000300000000000000080000000100000000545441010000001c0000000100000001000100010000000100010509010100010000000901010003545441080000009c9b546701006a14")
 
         nameRoot = nameRoot._narrow(CosNaming.NamingContext)
         if nameRoot is None:
