@@ -238,7 +238,10 @@ class Game_i(TicTacToe__POA.Game):
                     self.whose_go = TicTacToe.Nought
                     self.p_noughts.yourGo(self.state)
 
-                self.spectatorNotifier.up(self.state)
+                s = (self.state[0][:], self.state[1][:], self.state[2][:])
+                self.spectatorNotifier.queue.put(("update", (s,)))
+
+                # self.spectatorNotifier.up(self.state)
 
         except (CORBA.COMM_FAILURE, CORBA.OBJECT_NOT_EXIST) as ex:
             print("Lost contact with player!")
@@ -349,7 +352,7 @@ class GameController_i(TicTacToe__POA.GameController):
         print("GameController_i created.")
 
     def play(self, x, y):
-        print("s")
+
         return self.game._play(x, y, self.ptype)
 
 
@@ -393,7 +396,7 @@ def main(argv):
     print(orb.object_to_string(gf_obj))
 
     try:
-        nameRoot = orb.string_to_object("IOR:010000002b00000049444c3a6f6d672e6f72672f436f734e616d696e672f4e616d696e67436f6e746578744578743a312e300000010000000000000074000000010102000f0000003139322e3136382e3132372e36390000f90a00000b0000004e616d6553657276696365000300000000000000080000000100000000545441010000001c0000000100000001000100010000000100010509010100010000000901010003545441080000009c9b546701006a14")
+        nameRoot = orb.string_to_object("IOR:010000002b00000049444c3a6f6d672e6f72672f436f734e616d696e672f4e616d696e67436f6e746578744578743a312e300000010000000000000070000000010102000e0000003139322e3136382e312e31303500f90a0b0000004e616d6553657276696365000300000000000000080000000100000000545441010000001c0000000100000001000100010000000100010509010100010000000901010003545441080000009c9b546701006a14")
 
         nameRoot = nameRoot._narrow(CosNaming.NamingContext)
         if nameRoot is None:
